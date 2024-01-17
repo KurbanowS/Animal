@@ -7,4 +7,6 @@ type IStore interface {
 	AnimalFindByIds(Ids []string) ([]*models.Animal, error)
 	AnimalFindBy(f models.AnimalFilterRequest) (animal []*models.Animal, total int, err error)
 	AnimalsCreate(model *models.Animal) (*models.Animal, error)
+	AnimalUpdate(model *models.Animal) (*models.Animal, error)
+	AnimalDelete(items []*models.Animal) ([]*models.Animal, error)
 }

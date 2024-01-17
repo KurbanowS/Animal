@@ -12,9 +12,11 @@ import (
 )
 
 const sqlAnimalFields = `a.id, a.species, a.characteristic`
-const sqlAnimalSelect = `select ` + sqlAnimalFields + ` from animals a where id = ANY($1::[]int)`
-const sqlAnimalSelectMany = `select ` + sqlAnimalFields + `count(*) over as total from animals where a.id = a.id limit $1 offset $2`
-const sqlAnimalInsert = `insert into animals`
+const sqlAnimalSelect = `select ` + sqlAnimalFields + ` from animal a where id = ANY($1::int[])`
+const sqlAnimalSelectMany = `select ` + sqlAnimalFields + `, count(*) over() as total from animal a where a.id = a.id limit $1 offset $2`
+const sqlAnimalInsert = `insert into animal`
+const sqlAnimalUpdate = `update animal a set id = id`
+const sqlAnimalDelete = `delete from animal where id = ANY($1::int[])`
 
 func scanAnimals(rows pgx.Row, m *models.Animal, addColumns ...interface{}) (err error) {
 	err = rows.Scan(parseColumnsForScan(m, addColumns...)...)
@@ -95,6 +97,41 @@ func (d *PgxStore) AnimalsCreate(model *models.Animal) (*models.Animal, error) {
 	return editModel, nil
 }
 
+func (d *PgxStore) AnimalUpdate(model *models.Animal) (*models.Animal, error) {
+	qs, args := AnimalUpdateQuery(model)
+	err := d.runQuery(context.Background(), func(tx *pgxpool.Conn) (err error) {
+		_, err = tx.Query(context.Background(), qs, args...)
+		return
+	})
+	if err != nil {
+		utils.LoggerDesc("Query error").Error(err)
+		return nil, err
+	}
+	editModel, err := d.AnimalFindById(strconv.Itoa(int(model.ID)))
+	if err != nil {
+		return nil, err
+	}
+	return editModel, nil
+}
+
+func (d *PgxStore) AnimalDelete(items []*models.Animal) ([]*models.Animal, error) {
+	ids := []uint{}
+	for _, i := range items {
+		ids = append(ids, i.ID)
+	}
+	err := d.runQuery(context.Background(), func(tx *pgxpool.Conn) (err error) {
+		_, err = tx.Query(context.Background(), sqlAnimalDelete, (ids))
+		return
+	})
+	if err != nil {
+		utils.LoggerDesc("Query error").Error(err)
+		return nil, err
+	}
+	return items, nil
+}
+
+// ______________________________QUERIES______________________________________
+
 func AnimalsCreateQuery(m *models.Animal) (string, []interface{}) {
 	args := []interface{}{}
 	cols := ""
@@ -126,5 +163,18 @@ func AnimalListBuildQuery(f models.AnimalFilterRequest, args []interface{}) (str
 	wheres += "order by a.id desc"
 	qs := sqlAnimalSelectMany
 	qs = strings.ReplaceAll(qs, "a.id=a.id", "a.id=a.id "+wheres+" ")
+	return qs, args
+}
+
+func AnimalUpdateQuery(m *models.Animal) (string, []interface{}) {
+	args := []interface{}{}
+	sets := ""
+	q := AnimalsAtomicQuery(m)
+	for k, v := range q {
+		args = append(args, v)
+		sets += ", " + k + "=$" + strconv.Itoa(len(args))
+	}
+	args = append(args, m.ID)
+	qs := strings.ReplaceAll(sqlAnimalUpdate, "set id=id", "set id=id "+sets+"") + "where id=" + strconv.Itoa(len(args))
 	return qs, args
 }
